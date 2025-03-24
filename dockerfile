@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.0-cudnn9-runtime-ubuntu22.04
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
@@ -49,9 +49,9 @@ RUN pip install pysptk --no-build-isolation
 RUN pip install pyworld --no-build-isolation
 # Now install the rest of the requirements
 RUN pip install -r requirements.txt || echo "Some packages may have failed, continuing anyway"
-# Reinstall PyTorch with CUDA 12.4 support
+# Reinstall PyTorch with CUDA 12.1 support
 RUN pip uninstall -y torch torchvision torchaudio
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 # Install RunPod
 RUN pip install runpod
 
