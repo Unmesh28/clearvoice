@@ -6,6 +6,43 @@ import json
 import base64
 import requests
 from clearvoice import ClearVoice
+import subprocess
+import runpod
+
+def ensure_wav_format(input_path, temp_dir='temp'):
+    """
+    Convert audio to WAV format if needed.
+    
+    Args:
+        input_path (str): Path to the input audio file
+        temp_dir (str): Directory to store temporary files
+    
+    Returns:
+        str: Path to the WAV file
+    """
+    file_extension = os.path.splitext(input_path)[1].lower()
+    
+    if file_extension == '.wav':
+        return input_path
+    
+    # Create temp directory if it doesn't exist
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # Create output path for converted WAV
+    wav_filename = os.path.basename(input_path).rsplit('.', 1)[0] + '.wav'
+    wav_path = os.path.join(temp_dir, wav_filename)
+    
+    # Convert to WAV using ffmpeg
+    try:
+        subprocess.check_call([
+            'ffmpeg', '-y', '-i', input_path, 
+            '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '1',
+            wav_path
+        ])
+        return wav_path
+    except subprocess.SubprocessError as e:
+        print(f"Error converting to WAV: {e}")
+        return input_path  # Return original path as fallback
 
 def enhance_audio(input_path, output_path, model_pipeline, temp_dir='temp'):
     """
@@ -20,8 +57,11 @@ def enhance_audio(input_path, output_path, model_pipeline, temp_dir='temp'):
     # Create temp directory if it doesn't exist
     os.makedirs(temp_dir, exist_ok=True)
     
+    # Ensure input is in WAV format
+    input_wav_path = ensure_wav_format(input_path, temp_dir)
+    
     # Track the current file being processed
-    current_file = input_path
+    current_file = input_wav_path
     
     # Iterate through the model pipeline
     for i, model_info in enumerate(model_pipeline):
@@ -40,7 +80,7 @@ def enhance_audio(input_path, output_path, model_pipeline, temp_dir='temp'):
         current_file = intermediate_path
     
     # Move the final result to the output path
-    shutil.move(current_file, output_path)
+    shutil.copy(current_file, output_path)
     
     print(f"Final enhanced audio saved to {output_path}")
     return output_path
@@ -60,11 +100,11 @@ def process_audio(task, model_name, input_path, output_path):
     cv.write(processed_wav, output_path=output_path)
     return output_path
 
-def handler(job):
+def handler(event):
     """
     RunPod serverless handler function with direct file input/output
     """
-    job_input = job["input"]
+    job_input = event.get("input", {})
     
     # Make directories for inputs, outputs, and temp files
     os.makedirs("inputs", exist_ok=True)
@@ -73,25 +113,34 @@ def handler(job):
     
     # Get timestamp for unique filename
     timestamp = str(time.time()).replace(".", "")
-    input_path = f"inputs/input_{timestamp}.wav"
+    input_path = f"inputs/input_{timestamp}"
     output_path = f"outputs/output_{timestamp}.wav"
     
     # Handle the input audio file
-    if "file" in job["input"]:
-        # In RunPod, the "file" key would contain the path to the uploaded file
-        input_path = job["input"]["file"]
-    elif "input_url" in job["input"]:
+    if "audio_file" in job_input and isinstance(job_input["audio_file"], dict) and "local_path" in job_input["audio_file"]:
+        # This is how RunPod provides uploaded files
+        input_path = job_input["audio_file"]["local_path"]
+        print(f"Using uploaded file at: {input_path}")
+    elif "input_url" in job_input:
         # Download from URL
-        response = requests.get(job["input"]["input_url"])
+        file_extension = os.path.splitext(job_input["input_url"])[1]
+        if not file_extension:
+            file_extension = ".wav"  # Default extension if none provided
+        input_path = f"inputs/input_{timestamp}{file_extension}"
+        
+        response = requests.get(job_input["input_url"])
         with open(input_path, "wb") as f:
             f.write(response.content)
-    elif "input_data" in job["input"]:
+        print(f"Downloaded audio from URL to: {input_path}")
+    elif "input_data" in job_input:
         # Decode base64 data
-        audio_data = base64.b64decode(job["input"]["input_data"])
+        input_path = f"inputs/input_{timestamp}.wav"
+        audio_data = base64.b64decode(job_input["input_data"])
         with open(input_path, "wb") as f:
             f.write(audio_data)
+        print(f"Decoded base64 audio to: {input_path}")
     else:
-        return {"error": "No input audio provided. Please provide 'file', 'input_url', or 'input_data'"}
+        return {"error": "No input audio provided. Please provide 'audio_file' upload, 'input_url', or 'input_data'"}
     
     # Get model pipeline from input or use default
     model_pipeline = job_input.get("model_pipeline", [
@@ -108,15 +157,25 @@ def handler(job):
         with open(output_path, "rb") as f:
             output_data = base64.b64encode(f.read()).decode("utf-8")
         
+        # Determine the original file format
+        input_format = os.path.splitext(input_path)[1].lower()
+        
         # Return both the file path and base64 data
         return {
             "output": {
                 "file_path": output_path,  # Path to the output file on the server
                 "audio_data": output_data,  # Base64 encoded audio for direct download
-                "models_used": [model["model_name"] for model in model_pipeline]
+                "models_used": [model["model_name"] for model in model_pipeline],
+                "original_format": input_format
             }
         }
     
     except Exception as e:
         # If any error occurs, return it
-        return {"error": str(e)}
+        import traceback
+        traceback_str = traceback.format_exc()
+        return {"error": str(e), "traceback": traceback_str}
+
+# Start the RunPod serverless handler
+if __name__ == "__main__":
+    runpod.serverless.start({"handler": handler})
