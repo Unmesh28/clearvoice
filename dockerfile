@@ -1,51 +1,70 @@
-FROM pytorch/pytorch:2.0.0-cuda11.7-cudnn8-runtime
+FROM nvidia/cuda:12.4.0-cudnn9-runtime-ubuntu22.04
 
-WORKDIR /app
+# Avoid prompts from apt
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies and build tools
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
     git \
-    ffmpeg \
     wget \
+    ffmpeg \
+    libsndfile1 \
     build-essential \
     gcc \
     g++ \
     cmake \
-    libsndfile1 \
-    libsndfile1-dev \
     python3-dev \
+    libasound2-dev \
+    libportaudio2 \
+    libportaudiocpp0 \
+    portaudio19-dev \
+    libffi-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone the ClearerVoice-Studio repository
-RUN git clone https://github.com/modelscope/ClearerVoice-Studio.git /app/ClearerVoice-Studio
+# Install Miniconda
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh \
+    && bash /tmp/miniconda.sh -b -p /opt/conda \
+    && rm /tmp/miniconda.sh
 
-# Install Python dependencies
-WORKDIR /app/ClearerVoice-Studio
+# Add conda to path
+ENV PATH="/opt/conda/bin:${PATH}"
 
-# Install pip and setuptools first
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+# Create working directory
+WORKDIR /app
 
-# Install numpy and cython before other requirements (helps with building extensions)
-RUN pip install --no-cache-dir numpy cython
+# Clone the repository
+RUN git clone https://github.com/Unmesh28/clearvoice.git /app
 
-# Install problematic packages individually with build isolation
-RUN pip install --no-cache-dir --no-build-isolation pesq
-RUN pip install --no-cache-dir --no-build-isolation pysptk
-RUN pip install --no-cache-dir --no-build-isolation pyworld
+# Create and activate conda environment
+RUN conda create -n ClearerVoice-Studio python=3.8 -y
+SHELL ["conda", "run", "-n", "ClearerVoice-Studio", "/bin/bash", "-c"]
 
-# Now install remaining requirements
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir runpod requests
+# Install Python dependencies with special handling for problematic packages
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install Cython numpy
+# Install problematic packages separately with specific flags
+RUN pip install pesq --no-build-isolation
+RUN pip install pysptk --no-build-isolation
+RUN pip install pyworld --no-build-isolation
+# Now install the rest of the requirements
+RUN pip install -r requirements.txt || echo "Some packages may have failed, continuing anyway"
+# Reinstall PyTorch with CUDA 12.4 support
+RUN pip uninstall -y torch torchvision torchaudio
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+# Install RunPod
+RUN pip install runpod
 
-# Copy the handler script
-COPY handler.py /app/handler.py
+# Create directories for input/output
+RUN mkdir -p /tmp/inputs /tmp/outputs
 
-# Create directories for file handling
-RUN mkdir -p /app/inputs /app/outputs /app/temp
+# Set CUDA and PyTorch environment variables
+ENV CUDA_LAUNCH_BLOCKING=1
+ENV TORCH_USE_CUDA_DSA=1
+ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 
-# Set environment variables
-ENV PYTHONPATH="${PYTHONPATH}:/app/ClearerVoice-Studio"
+# Set the working directory to clearvoice directory where main.py is located
+WORKDIR /app/clearvoice
 
-# Set the entrypoint
-CMD ["runpod", "--", "python", "-u", "/app/handler.py"]
+# Set the entrypoint for conda environment
+ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "ClearerVoice-Studio", "python", "-u", "main.py"]
