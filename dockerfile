@@ -1,44 +1,31 @@
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04
+FROM pytorch/pytorch:2.0.0-cuda11.7-cudnn8-runtime
 
-# Avoid prompts from apt
-ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
-    wget \
     ffmpeg \
-    libsndfile1 \
+    wget \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Miniconda
-RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh \
-    && bash /tmp/miniconda.sh -b -p /opt/conda \
-    && rm /tmp/miniconda.sh
-
-# Add conda to path
-ENV PATH="/opt/conda/bin:${PATH}"
-
-# Create working directory
-WORKDIR /app
-
-# Clone the repository
-RUN git clone https://github.com/Unmesh28/clearvoice.git /app
-
-# Create and activate conda environment
-RUN conda create -n ClearerVoice-Studio python=3.8 -y
-SHELL ["conda", "run", "-n", "ClearerVoice-Studio", "/bin/bash", "-c"]
+# Clone the ClearerVoice-Studio repository
+RUN git clone https://github.com/modelscope/ClearerVoice-Studio.git /app/ClearerVoice-Studio
 
 # Install Python dependencies
-RUN pip install -r requirements.txt
-RUN pip install runpod
+WORKDIR /app/ClearerVoice-Studio
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir runpod requests
 
-# Create directories for input/output
-RUN mkdir -p /tmp/inputs /tmp/outputs
+# Copy the handler script
+COPY handler.py /app/handler.py
 
-# Set the working directory to clearvoice directory where main.py is located
-WORKDIR /app/clearvoice
+# Create directories for file handling
+RUN mkdir -p /app/inputs /app/outputs /app/temp
 
-# Set the entrypoint for conda environment
-ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "ClearerVoice-Studio", "python", "-u", "main.py"]
+# Set environment variables
+ENV PYTHONPATH="${PYTHONPATH}:/app/ClearerVoice-Studio"
+
+# Set the entrypoint
+CMD ["runpod", "--", "python", "-u", "/app/handler.py"]
