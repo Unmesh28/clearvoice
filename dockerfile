@@ -38,7 +38,8 @@ RUN pip install runpod
 RUN mkdir -p /tmp/inputs /tmp/outputs
 
 # Copy the modified main.py
-COPY main.py /app/clearvoice/main.py
+# Note: main.py must be in the same directory as the Dockerfile when building
+COPY ./main.py /app/clearvoice/main.py
 
 # Set the working directory to clearvoice directory
 WORKDIR /app/clearvoice
