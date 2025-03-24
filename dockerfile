@@ -24,7 +24,7 @@ ENV PATH="/opt/conda/bin:${PATH}"
 WORKDIR /app
 
 # Clone the repository
-RUN git clone https://github.com/modelscope/ClearerVoice-Studio.git /app
+RUN git clone https://github.com/Unmesh28/clearvoice.git /app
 
 # Create and activate conda environment
 RUN conda create -n ClearerVoice-Studio python=3.8 -y
@@ -37,11 +37,7 @@ RUN pip install runpod
 # Create directories for input/output
 RUN mkdir -p /tmp/inputs /tmp/outputs
 
-# Copy the modified main.py
-# Note: main.py must be in the same directory as the Dockerfile when building
-COPY ./main.py /app/clearvoice/main.py
-
-# Set the working directory to clearvoice directory
+# Set the working directory to clearvoice directory where main.py is located
 WORKDIR /app/clearvoice
 
 # Set the entrypoint for conda environment
