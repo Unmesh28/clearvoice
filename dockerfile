@@ -40,5 +40,8 @@ RUN mkdir -p /tmp/inputs /tmp/outputs
 # Copy the modified main.py
 COPY main.py /app/clearvoice/main.py
 
+# Set the working directory to clearvoice directory
+WORKDIR /app/clearvoice
+
 # Set the entrypoint for conda environment
-ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "ClearerVoice-Studio", "python", "-u", "/app/clearvoice/main.py"]
+ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "ClearerVoice-Studio", "python", "-u", "main.py"]
